@@ -1244,3 +1244,36 @@ img {
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* Task 6 — three-state AIP authorization */
+.authorization-status.review,
+.receipt-review {
+  color: #8a5a00;
+  background: #fff5d6;
+}
+
+.authorization-check.review {
+  background: #fff9e8;
+}
+
+.authorization-check.review .authorization-check-icon {
+  color: #8a5a00;
+  background: #ffedb0;
+}
+
+.authorization-check.failed .authorization-check-icon {
+  color: #b42318;
+  background: #fde0dd;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

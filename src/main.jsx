@@ -160,7 +160,7 @@ function App() {
       setSelected(null);
 
       // STEP 1 — Parse the natural-language instruction.
-      const parsedIntent = parseIntent(userCommand);
+      const parsedIntent = await parseIntent(userCommand);
       console.log("AIP Intent:", parsedIntent);
 
       // STEP 2 — Validate the structured intent.
@@ -211,33 +211,40 @@ function App() {
           },
         };
 
+        const planningStatus = !validCost || maximum == null
+          ? "REVIEW"
+          : estimatedCost > Number(maximum)
+            ? "DENY"
+            : "ALLOW";
+
         const planningAuthorization = {
-          authorized: withinBudget,
+          status: planningStatus,
+          decision: planningStatus,
+          authorized: planningStatus === "ALLOW",
           checks: [
             {
               name: "Budget limit",
-              passed: withinBudget,
+              status: planningStatus,
+              passed: planningStatus === "ALLOW",
               expected: maximum ?? null,
               actual: validCost ? estimatedCost : null,
               reason: !validCost
-                ? "A valid estimated travel cost is required."
+                ? "Estimated travel cost is missing or invalid; review is required."
                 : maximum == null
-                  ? "A maximum budget is required for authorization."
-                  : withinBudget
-                    ? "Estimated travel cost is within the requested budget."
-                    : "Estimated travel cost exceeds the requested budget.",
+                  ? "A maximum budget is required; review is required."
+                  : estimatedCost > Number(maximum)
+                    ? "Estimated travel cost exceeds the requested budget."
+                    : "Estimated travel cost is within the requested budget.",
             },
           ],
-          reasons: withinBudget ? [] : ["The travel plan could not be authorized."],
+          reasons: planningStatus === "ALLOW"
+            ? []
+            : [planningStatus === "REVIEW"
+                ? "The travel plan needs human review."
+                : "Estimated travel cost exceeds the requested budget."],
         };
 
-        setAuthorization({
-          transaction,
-          result: {
-            ...planningAuthorization,
-            status: withinBudget ? "AUTHORIZED" : "DENIED",
-          },
-        });
+        setAuthorization({ transaction, result: planningAuthorization });
         setReceipt(createIntentReceipt(parsedIntent, transaction, planningAuthorization));
         return;
       }
@@ -257,17 +264,36 @@ function App() {
         return;
       }
 
-      // STEP 5 — Evaluate the first candidate using its returned data.
-      const candidate = foundProducts[0];
+      // STEP 5 — Execute the allowlisted comparison step when the AI plan requests it.
+      // Product ranking uses returned listing data only; missing evidence is not invented.
+      const shouldCompare = Array.isArray(parsedIntent.executionPlan) &&
+        parsedIntent.executionPlan.some((step) => step.action === "compare_products");
+      const candidates = shouldCompare
+        ? [...foundProducts].sort((a, b) => {
+            const aPrice = Number.isFinite(Number(a.price)) ? Number(a.price) : Number.POSITIVE_INFINITY;
+            const bPrice = Number.isFinite(Number(b.price)) ? Number(b.price) : Number.POSITIVE_INFINITY;
+            const budget = Number(parsedIntent.budget?.maximum);
+            const aWithin = Number.isFinite(budget) && budget > 0 && aPrice <= budget;
+            const bWithin = Number.isFinite(budget) && budget > 0 && bPrice <= budget;
+            if (aWithin !== bWithin) return aWithin ? -1 : 1;
+            const aRating = Number.isFinite(Number(a.rating)) ? Number(a.rating) : 0;
+            const bRating = Number.isFinite(Number(b.rating)) ? Number(b.rating) : 0;
+            if (aRating !== bRating) return bRating - aRating;
+            return aPrice - bPrice;
+          })
+        : foundProducts;
+      const candidate = candidates[0];
       const transaction = {
         id: candidate.id ?? null,
         name: candidate.name || "Unnamed product",
         category: candidate.category ?? null,
         price: candidate.price ?? null,
+        priceText: candidate.priceText ?? null,
         currency: candidate.currency ?? null,
         agent: parsedIntent.agent,
         useCases: candidate.useCases ?? [],
         specifications: candidate.specifications ?? {},
+        specificationsVerified: candidate.specificationsVerified === true,
         details: {
           source: candidate.source ?? null,
           store: candidate.store ?? null,
@@ -941,25 +967,15 @@ function AIPExecution({
                 </div>
 
                 <div
-
-                  className={
-
-                    authorization.result.authorized
-
-                      ? "authorization-status allowed"
-
-                      : "authorization-status denied"
-
-                  }
-
+                  className={`authorization-status ${
+                    authorization.result.status === "ALLOW"
+                      ? "allowed"
+                      : authorization.result.status === "REVIEW"
+                        ? "review"
+                        : "denied"
+                  }`}
                 >
-
-                  {authorization.result.authorized
-
-                    ? "AUTHORIZED"
-
-                    : "DENIED"}
-
+                  {authorization.result.status || (authorization.result.authorized ? "ALLOW" : "DENY")}
                 </div>
 
               </div>
@@ -970,15 +986,13 @@ function AIPExecution({
 
                   <div
 
-                    className={
-
-                      check.passed
-
-                        ? "authorization-check passed"
-
-                        : "authorization-check failed"
-
-                    }
+                    className={`authorization-check ${
+                      check.status === "REVIEW"
+                        ? "review"
+                        : check.status === "DENY" || check.passed === false
+                          ? "failed"
+                          : "passed"
+                    }`}
 
                     key={check.name}
 
@@ -986,14 +1000,12 @@ function AIPExecution({
 
                     <div className="authorization-check-icon">
 
-                      {check.passed ? (
-
-                        <Check size={15} />
-
-                      ) : (
-
+                      {check.status === "REVIEW" ? (
+                        <CircleAlert size={15} />
+                      ) : check.status === "DENY" || check.passed === false ? (
                         <X size={15} />
-
+                      ) : (
+                        <Check size={15} />
                       )}
 
                     </div>
@@ -1544,13 +1556,13 @@ function AIPExecution({
 
             <span
 
-              className={`receipt-status ${receipt.authorization.authorized
-
+              className={`receipt-status ${
+                receipt.authorization.status === "ALLOW"
                   ? "receipt-approved"
-
-                  : "receipt-denied"
-
-                }`}
+                  : receipt.authorization.status === "REVIEW"
+                    ? "receipt-review"
+                    : "receipt-denied"
+              }`}
 
             >
 
