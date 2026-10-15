@@ -18,9 +18,6 @@ AIP explores how to make user intent explicit and enforceable before an agent pr
 - **Intent validation:** Check protocol fields, purpose, category, currency, budget, and agent identity fields.
 - **Live commerce search:** Retrieve shopping results through a backend powered by SerpApi.
 - **Authorization engine:** Evaluate proposed transactions against available intent constraints.
-- **Intent receipts:** Generate structured records of authorization decisions and their reasons.
-- **Execution pipeline UI:** Visualize Jinni's intent processing and authorization stages.
-- **Responsive interface:** React and CSS interface for interacting with the pipeline.
 
 ## Architecture
 
